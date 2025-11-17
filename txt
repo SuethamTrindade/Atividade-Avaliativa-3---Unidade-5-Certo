@@ -1,0 +1,3 @@
+faction capni
+function react
+PWA ganhar dinheiro 
