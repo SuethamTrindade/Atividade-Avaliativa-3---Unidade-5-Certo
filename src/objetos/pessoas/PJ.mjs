@@ -29,7 +29,8 @@ export default class PJ {
       nome: this.#nome,
       email: this.#email,
       cnpj: this.#cnpj,
-      dataRegistro: this.#dataRegistro,
+      // O backend espera "data" para a data de registro
+      data: this.#dataRegistro,
       endereco: this.#endereco?.toJSON ? this.#endereco.toJSON() : this.#endereco,
       ie: this.#ie?.toJSON ? this.#ie.toJSON() : this.#ie,
       telefones: this.#telefones.map(t => t?.toJSON ? t.toJSON() : t)
