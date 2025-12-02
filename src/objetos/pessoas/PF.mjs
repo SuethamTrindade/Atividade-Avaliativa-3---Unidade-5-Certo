@@ -29,7 +29,8 @@ export default class PF {
       nome: this.#nome,
       email: this.#email,
       cpf: this.#cpf,
-      dataNascimento: this.#dataNascimento,
+      // O backend espera "data" para a data de nascimento
+      data: this.#dataNascimento, 
       endereco: this.#endereco?.toJSON ? this.#endereco.toJSON() : this.#endereco,
       titulo: this.#titulo?.toJSON ? this.#titulo.toJSON() : this.#titulo,
       telefones: this.#telefones.map(t => t?.toJSON ? t.toJSON() : t)

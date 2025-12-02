@@ -1,5 +1,3 @@
-// PessoaFormBack.jsx — versão corrigida
-
 import React, { useState, useEffect } from "react";
 import { Form, Input, Button, Radio, message } from "antd";
 import { useParams, useNavigate } from "react-router-dom";
@@ -30,118 +28,103 @@ export default function PessoaFormBack() {
   const pfDAO = new PFDAO();
   const pjDAO = new PJDAO();
 
+  // === Carregamento dos dados (Assíncrono) ===
   useEffect(() => {
-    if (id && tipoParam) {
-      setEditando(true);
-      setTipo(tipoParam);
+    async function carregarDados() {
+      if (id && tipoParam) {
+        setEditando(true);
+        setTipo(tipoParam);
 
-      const dao = tipoParam === "PF" ? pfDAO : pjDAO;
-      const lista = dao.listar();
-      const pessoa = lista.find((p) => p.id === id);
+        try {
+          const dao = tipoParam === "PF" ? pfDAO : pjDAO;
+          // Agora usamos buscarPorId direto do Backend, que já mapeia 'data' para a propriedade correta
+          const pessoa = await dao.buscarPorId(id);
 
-      if (pessoa) {
-        const valores = {
-          tipo: tipoParam,
-          nome: pessoa.nome,
-          email: pessoa.email,
-          endereco: pessoa.endereco || {},
-          telefones: pessoa.telefones || [],
-        };
+          if (pessoa) {
+            const valores = {
+              tipo: tipoParam,
+              nome: pessoa.nome,
+              email: pessoa.email,
+              endereco: pessoa.endereco || {},
+              telefones: pessoa.telefones || [],
+            };
 
-        if (tipoParam === "PF") {
-          valores.cpf = pessoa.cpf;
-          valores.dataNascimento = pessoa.dataNascimento
-            ? dayjs(pessoa.dataNascimento)
-            : null;
+            if (tipoParam === "PF") {
+              valores.cpf = pessoa.cpf;
+              valores.dataNascimento = pessoa.dataNascimento ? dayjs(pessoa.dataNascimento) : null;
+              valores.titulo = pessoa.titulo;
+            } else {
+              valores.cnpj = pessoa.cnpj;
+              // Data Registro agora está na raiz do formulário de PJ também
+              valores.dataRegistro = pessoa.dataRegistro ? dayjs(pessoa.dataRegistro) : null;
+              
+              // IE continua separado, mas sem a dataRegistro dentro dele (pois movemos para fora)
+              valores.ie = {
+                numero: pessoa.ie?.numero || "",
+                estado: pessoa.ie?.estado || "",
+                // Se houver data de registro da IE específica, mantém aqui
+              };
+            }
 
-          valores.titulo = pessoa.titulo || {
-            numero: "",
-            zona: "",
-            secao: "",
-          };
-        } else {
-          valores.cnpj = pessoa.cnpj;
-
-          valores.ie = {
-            numero: pessoa.ie?.numero || "",
-            estado: pessoa.ie?.estado || "",
-            dataRegistro: pessoa.ie?.dataRegistro
-              ? dayjs(pessoa.ie.dataRegistro)
-              : null,
-          };
+            form.setFieldsValue(valores);
+          }
+        } catch (error) {
+          message.error("Erro ao buscar pessoa: " + error.message);
+          navigate("/listar");
         }
-
-        form.setFieldsValue(valores);
-      } else {
-        message.error("Pessoa não encontrada!");
-        navigate("/listar");
       }
     }
+    carregarDados();
   }, [id, tipoParam]);
 
   function onChangeTipo(e) {
     const novoTipo = e.target.value;
     setTipo(novoTipo);
-    const valoresAtuais = form.getFieldsValue();
-    form.resetFields();
-    form.setFieldsValue({ ...valoresAtuais, tipo: novoTipo });
+    // Limpa campos específicos ao trocar
+    form.resetFields(["cpf", "dataNascimento", "titulo", "cnpj", "dataRegistro", "ie"]); 
   }
 
-  function onFinish(values) {
+  // === Salvamento dos dados (Assíncrono) ===
+  async function onFinish(values) {
     try {
       let pessoa;
 
-      // ----- ENDEREÇO -----
+      // Endereço
       const endVals = values.endereco || {};
       const end = new Endereco();
-      end.cep = endVals.cep;
-      end.logradouro = endVals.logradouro;
-      end.bairro = endVals.bairro;
-      end.cidade = endVals.cidade;
-      end.uf = endVals.uf;
-      end.regiao = endVals.regiao;
+      Object.assign(end, endVals); // Maneira rápida de copiar propriedades iguais
 
-      // ========================= PF =========================
       if (values.tipo === "PF") {
         pessoa = new PF();
-        pessoa.nome = values.nome;
-        pessoa.email = values.email;
         pessoa.cpf = values.cpf;
-        pessoa.endereco = end;
-
-        const dn = values.dataNascimento;
-        pessoa.dataNascimento = dn ? dayjs(dn).format("YYYY-MM-DD") : null;
+        // Backend recebe como 'data', mas o objeto PF guarda em dataNascimento
+        pessoa.dataNascimento = values.dataNascimento ? dayjs(values.dataNascimento).format("YYYY-MM-DD") : null;
         
-
         if (values.titulo) {
           const t = new Titulo();
-          t.numero = values.titulo.numero;
-          t.zona = values.titulo.zona;
-          t.secao = values.titulo.secao;
+          Object.assign(t, values.titulo);
           pessoa.titulo = t;
         }
-
-      // ========================= PJ =========================
       } else {
         pessoa = new PJ();
-        pessoa.nome = values.nome;
-        pessoa.email = values.email;
         pessoa.cnpj = values.cnpj;
-        pessoa.endereco = end;
+        // Data Registro PJ (mapeado para 'data' no toJSON)
+        pessoa.dataRegistro = values.dataRegistro ? dayjs(values.dataRegistro).format("YYYY-MM-DD") : null;
 
         if (values.ie) {
           const ie = new IE();
           ie.numero = values.ie.numero;
           ie.estado = values.ie.estado;
-
-          const dr = values.ie.dataRegistro;
-          ie.dataRegistro = dr ? dr.format("YYYY-MM-DD") : null;
-
+          // IE dataRegistro é opcional/específico da IE, diferente da data da empresa
           pessoa.ie = ie;
         }
       }
 
-      // ----- TELEFONES -----
+      // Dados Comuns
+      pessoa.nome = values.nome;
+      pessoa.email = values.email;
+      pessoa.endereco = end;
+
       if (values.telefones?.length > 0) {
         values.telefones.forEach((tel) => {
           const fone = new Telefone();
@@ -151,77 +134,69 @@ export default function PessoaFormBack() {
         });
       }
 
-      // ----- DAO -----
       const dao = tipo === "PF" ? pfDAO : pjDAO;
 
       if (editando && id) {
-        dao.atualizar(id, pessoa);
-        message.success("Registro atualizado!");
+        await dao.atualizar(id, pessoa);
+        message.success("Registro atualizado no Backend!");
       } else {
-        dao.salvar(pessoa);
-        message.success("Registro criado!");
+        await dao.salvar(pessoa);
+        message.success("Registro criado no Backend!");
       }
 
-      form.resetFields();
       setTimeout(() => navigate("/listar"), 500);
 
     } catch (erro) {
       console.error("❌ Erro ao salvar:", erro);
-      message.error("Erro ao salvar registro: " + erro.message);
+      message.error("Erro ao salvar: " + erro.message);
     }
   }
 
   return (
     <div className="main-scroll" style={{ overflowY: "auto", height: "100vh", background: "#f9f9f9" }}>
       <div style={{ maxWidth: 800, margin: "24px auto", background: "#fff", padding: 24, borderRadius: 8 }}>
-
         <h2 style={{ textAlign: "center", marginBottom: 20 }}>
-          {editando
-            ? `Editar ${tipo === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}`
-            : `Cadastro de ${tipo === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}`}
+          {editando ? "Editar" : "Cadastrar"} {tipo === "PF" ? "Pessoa Física" : "Pessoa Jurídica"}
         </h2>
 
-        <Form layout="vertical" form={form} onFinish={onFinish}>
-
-          <Form.Item label="Tipo de Pessoa" name="tipo" initialValue="PF">
-            <Radio.Group onChange={onChangeTipo}>
+        <Form layout="vertical" form={form} onFinish={onFinish} initialValues={{ tipo: "PF" }}>
+          <Form.Item label="Tipo de Pessoa" name="tipo">
+            <Radio.Group onChange={onChangeTipo} disabled={editando}>
               <Radio value="PF">Pessoa Física</Radio>
               <Radio value="PJ">Pessoa Jurídica</Radio>
             </Radio.Group>
           </Form.Item>
 
           <Form.Item label="Nome" name="nome" rules={[{ required: true }]}>
-            <Input placeholder="Nome completo / Razão social" />
+            <Input />
           </Form.Item>
-
-          <Form.Item label="Email" name="email" rules={[{ required: true }, { type: "email" }]}>
-            <Input placeholder="email@email.com" />
+          <Form.Item label="Email" name="email" rules={[{ required: true, type: "email" }]}>
+            <Input />
           </Form.Item>
 
           {tipo === "PF" ? (
             <Form.Item label="CPF" name="cpf" rules={[{ required: true }]}>
-              <Input placeholder="CPF" maxLength={11} />
+              <Input maxLength={11} />
             </Form.Item>
           ) : (
             <Form.Item label="CNPJ" name="cnpj" rules={[{ required: true }]}>
-              <Input placeholder="CNPJ" maxLength={18} />
+              <Input maxLength={18} />
             </Form.Item>
           )}
 
           <EnderecoForm />
           <TelefoneList form={form} />
+          
+          {/* Renderiza o sub-formulário correto */}
           {tipo === "PF" ? <PFForm /> : <PJForm />}
 
-          <Form.Item>
+          <Form.Item style={{ marginTop: 20 }}>
             <Button type="primary" htmlType="submit" block>
               {editando ? "Salvar Alterações" : "Salvar"}
             </Button>
           </Form.Item>
-
           {editando && (
-            <Form.Item>
-              <Button block onClick={() => navigate("/listar")}>Cancelar</Button>
-            </Form.Item>
+            <Button block onClick={() => navigate("/listar")}>Cancelar</Button>
           )}
         </Form>
       </div>
